@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/aws/aws-lambda-go/events"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -89,9 +90,40 @@ func New(req *http.Request) (hook *Hook, err error) {
 	return
 }
 
+func NewByLambda(req events.APIGatewayProxyRequest) (*Hook, error) {
+	hook := new(Hook)
+	if !strings.EqualFold(req.HTTPMethod, "POST") {
+		return nil, errors.New("Unknown method!")
+	}
+
+	if hook.Signature = req.Headers["x-hub-signature"]; len(hook.Signature) == 0 {
+		return nil, errors.New("No signature!")
+	}
+
+	if hook.Event = req.Headers["x-github-event"]; len(hook.Event) == 0 {
+		return nil, errors.New("No event!")
+	}
+
+	if hook.Id = req.Headers["x-github-delivery"]; len(hook.Id) == 0 {
+		return nil, errors.New("No event Id!")
+	}
+
+	hook.Payload = []byte(req.Body)
+	return hook, nil
+
+}
+
 // Parse reads and verifies the hook in an inbound request.
 func Parse(secret []byte, req *http.Request) (hook *Hook, err error) {
 	hook, err = New(req)
+	if err == nil && !hook.SignedBy(secret) {
+		err = errors.New("Invalid signature")
+	}
+	return
+}
+
+func ParseLambda(secret []byte, req events.APIGatewayProxyRequest) (hook *Hook, err error) {
+	hook, err = NewByLambda(req)
 	if err == nil && !hook.SignedBy(secret) {
 		err = errors.New("Invalid signature")
 	}
